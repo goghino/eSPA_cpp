@@ -5,9 +5,11 @@
 // Authors:  Carl Laird, Andreas Waechter     IBM    2004-11-05
 
 #include "MyNLP.hpp"
+#include "IpJournalist.hpp"
 
 #include <cassert>
 #include <random>
+#include <algorithm>    // std::max
 
 #ifdef __GNUC__
 #pragma GCC diagnostic ignored "-Wunused-parameter"
@@ -16,88 +18,181 @@
 using namespace Ipopt;
 
 /* Constructor. */
-MyNLP::MyNLP(int dim, int T, double reg_param):
+MyNLP::MyNLP(Index dim, Index T, Number reg_param):
    dim(dim),
    T(T),
    reg_param(reg_param),
+   min_x(1e-12),
    Xspace(NULL),
    betaspace(NULL),
+   pispace(NULL),
+   alphaspace(NULL),
    X(NULL),
    beta(NULL),
+   alpha(NULL),
    pi(NULL),
    Xbeta(NULL),
-   beta_eLR(NULL)
+   beta_eLR(NULL),
+   jnlst(new Journalist())
 { 
+   this->jnlst->AddFileJournal("Matrices", "matrices.out", J_INSUPPRESSIBLE);
+
    // Allocate memory for the parameters
    this->Xspace = new DenseGenMatrixSpace(dim, T);
    this->betaspace = new DenseGenMatrixSpace(dim, 1);
+   this->pispace = new DenseGenMatrixSpace(T, 1);
+   this->alphaspace = new DenseGenMatrixSpace(dim, dim);
 
    this->X        = Xspace->MakeNewDenseGenMatrix();
    this->beta     = betaspace->MakeNewDenseGenMatrix();
-   this->pi       = betaspace->MakeNewDenseGenMatrix();
+   this->alpha    = alphaspace->MakeNewDenseGenMatrix();
+   this->pi       = pispace->MakeNewDenseGenMatrix();
    this->Xbeta    = Xspace->MakeNewDenseGenMatrix();
    this->beta_eLR = betaspace->MakeNewDenseGenMatrix();
 
+   // Some sanity checks
+   assert(this->dim == this->alphaspace->NRows());
+   assert(this->alphaspace->NRows() == this->alphaspace->NCols());
+   assert(this->dim == this->betaspace->NRows());
+   assert(1 == this->betaspace->NCols());
+   assert(this->dim == this->Xspace->NRows());
+   assert(this->T == this->Xspace->NCols());
+
    // Initialize values of the parameters
-   InitializeParameters();
+   //InitializeParametersRandom();
+   InitializeParametersSeries();
+
+   this->X->Print(*jnlst, (EJournalLevel) J_INSUPPRESSIBLE, (EJournalCategory) J_DBG, "X", 0);
+   this->beta->Print(*jnlst, (EJournalLevel) J_INSUPPRESSIBLE, (EJournalCategory) J_DBG, "beta", 0);
+   this->pi->Print(*jnlst, (EJournalLevel) J_INSUPPRESSIBLE, (EJournalCategory) J_DBG, "pi", 0);
 
    // Build NLP problem and its data from the parameters
    AssembleDataNLP();
+
+   this->Xbeta->Print(*jnlst, (EJournalLevel) J_INSUPPRESSIBLE, (EJournalCategory) J_DBG, "Xbeta", 0);
+   this->alpha->Print(*jnlst, (EJournalLevel) J_INSUPPRESSIBLE, (EJournalCategory) J_DBG, "alpha", 0);
+   this->beta_eLR->Print(*jnlst, (EJournalLevel) J_INSUPPRESSIBLE, (EJournalCategory) J_DBG, "beta_eLR", 0);
 }
 
-void MyNLP::InitializeParameters()
+void MyNLP::InitializeParametersRandom()
 {
    std::default_random_engine generator;
    std::normal_distribution<double> distribution(0.0, 1.0);
    
-   int idx = 0;
+   Index idx = 0;
    Number *X_values = this->X->Values(); //elements are stored one column after each other
 
-   for (int j = 0; j < this->T; j++)
+   for (Index j = 0; j < this->T; j++)
    {
-      for (int i = 0; i < this->dim; i++)
+      for (Index i = 0; i < this->dim; i++)
       {
          X_values[idx++] = distribution(generator);
       }
    }
 
-
    Number *beta_values = this->beta->Values(); //elements are stored one column after each other
-   Number *pi_values = this->pi->Values(); //elements are stored one column after each other
-   for (int i = 0; i < this->dim; i++)
+   for (Index i = 0; i < this->dim; i++)
    {
       beta_values[i] = distribution(generator);
+   }
+
+   Number *pi_values = this->pi->Values(); //elements are stored one column after each other
+   for (Index i = 0; i < this->T; i++)
+   {
       pi_values[i] = distribution(generator);
+   }
+}
+
+void MyNLP::InitializeParametersSeries()
+{
+   
+   Index idx = 0;
+   Number *X_values = this->X->Values(); //elements are stored one column after each other
+
+   for (Index j = 0; j < this->T; j++)
+   {
+      for (Index i = 0; i < this->dim; i++)
+      {
+         X_values[idx] = idx + 1.0;
+         idx++;
+      }
+   }
+
+   Number *beta_values = this->beta->Values(); //elements are stored one column after each other
+   for (Index i = 0; i < this->dim; i++)
+   {
+      beta_values[i] = i + 1.0;
+   }
+
+   Number *pi_values = this->pi->Values(); //elements are stored one column after each other
+   for (Index i = 0; i < this->T; i++)
+   {
+      pi_values[i] = i + 1.0;
    }
 }
 
 void MyNLP::AssembleDataNLP()
 {
    
-   // // Compute low rank vector used in the outer product
-   // // Xbeta = X;
-   // // for i=1:T
-   // //    Xbeta(:,i) = X(:,i).*beta'*sqrt(1/T);
-   // // end
-   // for (int i = 0; i < this->dim; i++)
-   // {
-   //    for (int j = 0; j < this->T; j++)
-   //    {
-   //       this->Xbeta[i*this->T + j] = this->X[i*this->T + j] * beta[j] * sqrt(1/T);
-   //    }
-   // }
+   // Compute low rank vector used in the outer product
+   // Xbeta = X;
+   // for i=1:T
+   //    Xbeta(:,i) = X(:,i).*beta'*sqrt(1/T);
+   // end
+   Number *X_values = this->X->Values(); //elements are stored one column after each other
+   Number *beta_values = this->beta->Values(); //elements are stored one column after each other
+   Number *Xbeta_values = this->Xbeta->Values(); //elements are stored one column after each other
+   for (Index j = 0; j < this->T; j++)
+   {
+      for (Index i = 0; i < this->dim; i++)
+      {
+         Xbeta_values[j*this->dim + i] = X_values[j*this->dim + i] * beta_values[i] * sqrt(1.0/this->T);
+      }
+   }
 
-   // // Compute the other constant vector in the objective
-   // // beta_eLR = (-2/T)*beta.*((pi.*X) * e)';
-   // for (int i = 0; i < this->dim; i++)
-   // {
-   //    this->beta_eLR[i] = 0;
-   //    for (int j = 0; j < this->T; j++)
-   //    {
-   //       this->beta_eLR[i] += this->X[i*this->T + j] * this->pi[j];
-   //    }
-   //    this->beta_eLR[i] *= (-2/this->T) * this->beta[i];
-   // }
+   // Compute the other constant vector in the objective
+   // beta_eLR = (-2/T)*beta.*((pi.*X) * e)';
+   Number *beta_eLR_values = this->beta_eLR->Values(); //elements are stored one column after each other
+   Number *pi_values = this->pi->Values(); //elements are stored one column after each other
+
+   for (Index i = 0; i < this->dim; i++)
+   {
+      beta_eLR_values[i] = 0;
+   }
+   for (Index j = 0; j < this->T; j++)
+   {
+      for (Index i = 0; i < this->dim; i++)
+      {
+         beta_eLR_values[i] += X_values[j*this->dim + i] * pi_values[j];
+      }
+      
+   }
+   for (Index i = 0; i < this->dim; i++)
+   {
+      beta_eLR_values[i] *= (-2/this->T) * beta_values[i];
+   }
+
+
+   // Compute the outer product
+   // alpha = Xbeta*Xbeta';
+   Number *alpha_values = this->alpha->Values(); //elements are stored one column after each other
+
+   Index nrows = this->alphaspace->NRows();
+   Index ncols = this->alphaspace->NCols();
+
+   std::fill_n(alpha_values, nrows*ncols, 0.0);
+
+   for (Index i = 0; i < this->dim; i++)
+   {
+      for (Index j = 0; j < this->dim; j++)
+      {
+         for (Index k = 0; k < this->T; k++)
+         {
+            //TODO: super inefficient, optimize the memory access pattern!
+            alpha_values[j*this->dim + i] += Xbeta_values[k*this->dim + i] * Xbeta_values[k*this->dim + j];
+         }
+      }
+   }
 }
 
 MyNLP::~MyNLP()
@@ -142,7 +237,7 @@ bool MyNLP::get_bounds_info(
    // here, the n and m we gave IPOPT in get_nlp_info are passed back to us.
    // If desired, we could assert to make sure they are what we think they are.
 
-   for (int i = 0; i < n; i++)
+   for (Index i = 0; i < n; i++)
    {
       x_l[i] = 0.0;
       x_u[i] = 1.0;
@@ -178,11 +273,19 @@ bool MyNLP::get_starting_point(
    std::normal_distribution<double> distribution(0.0, 1.0);
 
    // we initialize x in bounds, in the upper right quadrant
-   for (int i = 0; i < n; i++)
+   for (Index i = 0; i < n; i++)
    {
-      x[i] = distribution(generator);
-      printf("%d: %f\n",i, x[i]);
+      x[i] = 0.1 + i/(double)n;
    }
+
+   // Dump to the file
+   DenseGenMatrix *X0     = this->betaspace->MakeNewDenseGenMatrix();
+   Number *Xvals = X0->Values();
+   for (Index i = 0; i < this->dim; i++)
+   {
+      Xvals[i] = x[i];
+   }
+   X0->Print(*(this->jnlst), (EJournalLevel) J_INSUPPRESSIBLE, (EJournalCategory) J_DBG, "X0", 0);
 
    return true;
 }
@@ -195,14 +298,29 @@ bool MyNLP::eval_f(
 )
 {
    // return the value of the objective function
+   // fun=(beta_eLR+W*alpha)*W'+eps_C*sum(W.*(log(max(W,1e-12)))); where W is the unknown
    obj_value = 0.0;
-   for (int i = 0; i < n; i++)
+
+   Number *alpha_values = this->alpha->Values(); //elements are stored one column after each other
+   Number *beta_eLR_values = this->beta_eLR->Values(); //elements are stored one column after each other
+   Number tmp;
+   Index idx;
+
+   for (Index i = 0; i < n; i++)
    {
-      for (int j = 0; j < n; j++)
+      tmp = 0.0;
+      for (Index j = 0; j < n; j++)
       {
-         obj_value += x[i]*x[j];
+         //tmp = alpha[i,j]*x[j]
+         idx = this->dim*j + i;
+         tmp += alpha_values[idx] * x[j];
       }
+      // f = x[i]*(alpha[i,:]*x[:]) + beta_eLR[i]*x[i] + eps*x[i](log(max(x[i],thresh)))
+      obj_value += x[i]*tmp + beta_eLR_values[i]*x[i] + this->reg_param*x[i]*log(std::max(x[i],this->min_x));
    }
+
+   // printf("%.16e\n", obj_value);
+   // exit(0);
 
    return true;
 }
@@ -215,10 +333,10 @@ bool MyNLP::eval_grad_f(
 )
 {
    // return the gradient of the objective function grad_{x} f(x)
-   for (int i = 0; i < n; i++)
+   for (Index i = 0; i < n; i++)
    {
       grad_f[i] = 0.0;
-      for (int j = 0; j < n; j++)
+      for (Index j = 0; j < n; j++)
       {
          grad_f[i] += x[j];
       }
@@ -236,8 +354,8 @@ bool MyNLP::eval_g(
 )
 {
    // return the value of the constraints: g(x)
-   double sum = 0.0;
-   for (int i = 0; i < n; i++)
+   Number sum = 0.0;
+   for (Index i = 0; i < n; i++)
    {
       sum += x[i];
    }
@@ -262,7 +380,7 @@ bool MyNLP::eval_jac_g(
    {
       // return the structure of the jacobian of the constraints
 
-      for (int i = 0; i < n; i++)
+      for (Index i = 0; i < n; i++)
       {
          // FORTRAN_STYLE indexing
          iRow[i] = 1;
@@ -272,7 +390,7 @@ bool MyNLP::eval_jac_g(
    else
    {
       // return the values of the jacobian of the constraints
-      for (int i = 0; i < n; i++)
+      for (Index i = 0; i < n; i++)
       {
          // i-th element
          values[i] = 1.0;
@@ -300,10 +418,10 @@ bool MyNLP::eval_h(
    {
       // return the structure of the Hessian of Lagrangian
 
-      int nnz = 0;
-      for (int i = 0; i < n+m; i++)
+      Index nnz = 0;
+      for (Index i = 0; i < n+m; i++)
       {
-         for (int j = 0; j < n+m; j++)
+         for (Index j = 0; j < n+m; j++)
          {
             if (i == n+m && j == n+m)
             {
@@ -320,7 +438,7 @@ bool MyNLP::eval_h(
    else
    {
       // return the values of the Hessian of Lagrangian
-      for (int i = 0; i < nele_hess; i++)
+      for (Index i = 0; i < nele_hess; i++)
       {
          // i-th element
          values[i] = 1.0 * obj_factor;

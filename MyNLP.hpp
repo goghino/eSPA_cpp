@@ -29,23 +29,30 @@ class MyNLP: public TNLP
 {
 public:
    /** default constructor */
-   MyNLP(int dim, int T, double reg_param);
-   void InitializeParameters();
+   MyNLP(Index dim, Index T, Number reg_param);
+   void InitializeParametersRandom();
+   void InitializeParametersSeries();
    void AssembleDataNLP();
 
-   int dim;
-   int T;
-   double reg_param;
+   Index dim;
+   Index T;
+   Number reg_param;
+   Number min_x;
 
    SmartPtr<DenseGenMatrixSpace> Xspace;
    SmartPtr<DenseGenMatrixSpace> betaspace;
+   SmartPtr<DenseGenMatrixSpace> pispace;
+   SmartPtr<DenseGenMatrixSpace> alphaspace;
 
    SmartPtr<DenseGenMatrix> X;
    SmartPtr<DenseGenMatrix> pi;
    SmartPtr<DenseGenMatrix> beta;
+   SmartPtr<DenseGenMatrix> alpha;
 
    SmartPtr<DenseGenMatrix> Xbeta;
    SmartPtr<DenseGenMatrix> beta_eLR;
+
+   Journalist *jnlst;
 
    /** default destructor */
    virtual ~MyNLP();
