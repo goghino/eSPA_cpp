@@ -17,8 +17,8 @@ int main(
    char**
 )
 {
-   int dim = 5;
-   int T = 2;
+   int dim = 50;
+   int T = 20;
    double reg_param = 1e-3;
 
    // Create an instance of your nlp...

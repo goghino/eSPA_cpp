@@ -1,0 +1,20 @@
+linear_solver  pardiso
+print_timing_statistics yes
+#pardiso_iterative yes
+#pardiso_iter_relative_tol 0.001
+#pardiso_iter_dropping_factor 0.9999999
+#pardiso_iter_max_row_fill 1
+#pardiso_iter_max_levels 
+#pardiso_skip_inertia_check no
+#pardiso_dropping_schur_exponent -5
+#pardiso_dropping_factor_exponent -6
+#pardiso_inverse_norm_factor 5
+#pardiso_iter_tol_exponent -2
+#pardiso_msglvl 1
+file_print_level 5
+output_file all.out
+#max_refinement_steps 0
+#pardiso_order amd
+#min_refinement_step
+#max_iter 3
+#derivative_test second-order

@@ -188,7 +188,7 @@ void MyNLP::AssembleDataNLP()
       {
          for (Index k = 0; k < this->T; k++)
          {
-            //TODO: super inefficient, optimize the memory access pattern!
+            //TODO: super inefficient, optimize the memory access pattern! Improve to iterate over continuous memory addresses.
             alpha_values[j*this->dim + i] += Xbeta_values[k*this->dim + i] * Xbeta_values[k*this->dim + j];
          }
       }
@@ -217,7 +217,7 @@ bool MyNLP::get_nlp_info(
    nnz_jac_g = n;
 
    // nonzeros in the hessian of the lagrangian
-   nnz_h_lag = (n+m)*(n+m);
+   nnz_h_lag = n/2.0*(1+n); //consider only lower triangular part
 
    // We use the standard fortran index style for row/col entries
    index_style = FORTRAN_STYLE;
@@ -333,14 +333,39 @@ bool MyNLP::eval_grad_f(
 )
 {
    // return the gradient of the objective function grad_{x} f(x)
+   // grad = beta+2*(alpha*W')'+eps_C.*(log(max(W,1e-12))+ones(1,d))
+
+   Number *alpha_values = this->alpha->Values(); //elements are stored one column after each other
+   Number *beta_eLR_values = this->beta_eLR->Values(); //elements are stored one column after each other
+
+   Index idx;
+
    for (Index i = 0; i < n; i++)
    {
       grad_f[i] = 0.0;
       for (Index j = 0; j < n; j++)
       {
-         grad_f[i] += x[j];
+         grad_f[i] = 0.0;
+
+         for (Index j = 0; j < n; j++)
+         {
+            idx = this->dim*j + i; //TODO: Improve to iterate over continuous memory addresses
+            grad_f[i] += alpha_values[idx]*x[j];
+         }
+
+         grad_f[i] *= 2.0;
+         grad_f[i] += beta_eLR_values[i] + this->reg_param*(1.0 + log(std::max(x[i],this->min_x)));
       }
    }
+
+   // Dump to the file
+   DenseGenMatrix *grad     = this->betaspace->MakeNewDenseGenMatrix();
+   Number *gradvals = grad->Values();
+   for (Index i = 0; i < this->dim; i++)
+   {
+      gradvals[i] = grad_f[i];
+   }
+   grad->Print(*(this->jnlst), (EJournalLevel) J_INSUPPRESSIBLE, (EJournalCategory) J_DBG, "grad", 0);
 
    return true;
 }
@@ -417,32 +442,59 @@ bool MyNLP::eval_h(
    if( values == NULL )
    {
       // return the structure of the Hessian of Lagrangian
+      // Ipopt expects that only the lower diagonal entries are specified
 
       Index nnz = 0;
-      for (Index i = 0; i < n+m; i++)
+      for (Index i = 0; i < n; i++)
       {
-         for (Index j = 0; j < n+m; j++)
+         for (Index j = 0; j <= i; j++)
          {
-            if (i == n+m && j == n+m)
-            {
-               continue;
-            }
-
             // FORTRAN_STYLE indexing
             iRow[nnz] = i+1;
             jCol[nnz] = j+1;
             nnz++;
          }
       }
+      assert(nnz == nele_hess);
    }
    else
    {
       // return the values of the Hessian of Lagrangian
-      for (Index i = 0; i < nele_hess; i++)
+      Number *alpha_values = this->alpha->Values(); //elements are stored one column after each other
+      Index alpha_idx;
+      Index nnz_idx = 0;
+      
+      for (Index i = 0; i < n; i++)
       {
-         // i-th element
-         values[i] = 1.0 * obj_factor;
+         for (Index j = 0; j <= i; j++)
+         {
+            alpha_idx = this->dim*j + i;
+            values[nnz_idx] = 2.0 * obj_factor * alpha_values[alpha_idx];
+
+            // Add the regularization eps_C./max(x(i),1e-12)
+            if (i == j)
+            {
+               values[nnz_idx] += obj_factor*this->reg_param/std::max(x[i], this->min_x);
+            }
+
+            //printf("ALPHA: %d %d %f\n",i,j, alpha_values[alpha_idx] );
+            //printf("HESS(%f):  %d %d %f\n",obj_factor, i,j, values[nnz_idx] );
+
+            nnz_idx++;
+         }
       }
+      assert(nnz_idx == nele_hess);
+
+      // // Dump to the file
+      // DenseGenMatrixSpace hessspace(nele_hess, 1);
+      // DenseGenMatrix *hess     = hessspace.MakeNewDenseGenMatrix();
+      // Number *hessvals = hess->Values();
+      // for (Index i = 0; i < nele_hess; i++)
+      // {
+      //    hessvals[i] = values[i];
+      // }
+      // hess->Print(*(this->jnlst), (EJournalLevel) J_INSUPPRESSIBLE, (EJournalCategory) J_DBG, "hessian", 0);
+      // exit(1);
    }
 
    return true;
