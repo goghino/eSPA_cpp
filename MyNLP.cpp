@@ -62,16 +62,20 @@ MyNLP::MyNLP(Index dim, Index T, Number reg_param):
    //InitializeParametersRandom();
    InitializeParametersSeries();
 
+   #ifdef DEGUG
    this->X->Print(*jnlst, (EJournalLevel) J_INSUPPRESSIBLE, (EJournalCategory) J_DBG, "X", 0);
    this->beta->Print(*jnlst, (EJournalLevel) J_INSUPPRESSIBLE, (EJournalCategory) J_DBG, "beta", 0);
    this->pi->Print(*jnlst, (EJournalLevel) J_INSUPPRESSIBLE, (EJournalCategory) J_DBG, "pi", 0);
+   #endif 
 
    // Build NLP problem and its data from the parameters
    AssembleDataNLP();
 
+   #ifdef DEGUG
    this->Xbeta->Print(*jnlst, (EJournalLevel) J_INSUPPRESSIBLE, (EJournalCategory) J_DBG, "Xbeta", 0);
    this->alpha->Print(*jnlst, (EJournalLevel) J_INSUPPRESSIBLE, (EJournalCategory) J_DBG, "alpha", 0);
    this->beta_eLR->Print(*jnlst, (EJournalLevel) J_INSUPPRESSIBLE, (EJournalCategory) J_DBG, "beta_eLR", 0);
+   #endif
 }
 
 void MyNLP::InitializeParametersRandom()
@@ -278,6 +282,7 @@ bool MyNLP::get_starting_point(
       x[i] = 0.1 + i/(double)n;
    }
 
+   #ifdef DEGUG
    // Dump to the file
    DenseGenMatrix *X0     = this->betaspace->MakeNewDenseGenMatrix();
    Number *Xvals = X0->Values();
@@ -286,6 +291,7 @@ bool MyNLP::get_starting_point(
       Xvals[i] = x[i];
    }
    X0->Print(*(this->jnlst), (EJournalLevel) J_INSUPPRESSIBLE, (EJournalCategory) J_DBG, "X0", 0);
+   #endif
 
    return true;
 }
@@ -318,9 +324,6 @@ bool MyNLP::eval_f(
       // f = x[i]*(alpha[i,:]*x[:]) + beta_eLR[i]*x[i] + eps*x[i](log(max(x[i],thresh)))
       obj_value += x[i]*tmp + beta_eLR_values[i]*x[i] + this->reg_param*x[i]*log(std::max(x[i],this->min_x));
    }
-
-   // printf("%.16e\n", obj_value);
-   // exit(0);
 
    return true;
 }
@@ -358,6 +361,7 @@ bool MyNLP::eval_grad_f(
       }
    }
 
+   #ifdef DEGUG
    // Dump to the file
    DenseGenMatrix *grad     = this->betaspace->MakeNewDenseGenMatrix();
    Number *gradvals = grad->Values();
@@ -366,6 +370,7 @@ bool MyNLP::eval_grad_f(
       gradvals[i] = grad_f[i];
    }
    grad->Print(*(this->jnlst), (EJournalLevel) J_INSUPPRESSIBLE, (EJournalCategory) J_DBG, "grad", 0);
+   #endif
 
    return true;
 }
@@ -485,16 +490,17 @@ bool MyNLP::eval_h(
       }
       assert(nnz_idx == nele_hess);
 
-      // // Dump to the file
-      // DenseGenMatrixSpace hessspace(nele_hess, 1);
-      // DenseGenMatrix *hess     = hessspace.MakeNewDenseGenMatrix();
-      // Number *hessvals = hess->Values();
-      // for (Index i = 0; i < nele_hess; i++)
-      // {
-      //    hessvals[i] = values[i];
-      // }
-      // hess->Print(*(this->jnlst), (EJournalLevel) J_INSUPPRESSIBLE, (EJournalCategory) J_DBG, "hessian", 0);
-      // exit(1);
+      #ifdef DEGUG
+      // Dump to the file
+      DenseGenMatrixSpace hessspace(nele_hess, 1);
+      DenseGenMatrix *hess     = hessspace.MakeNewDenseGenMatrix();
+      Number *hessvals = hess->Values();
+      for (Index i = 0; i < nele_hess; i++)
+      {
+         hessvals[i] = values[i];
+      }
+      hess->Print(*(this->jnlst), (EJournalLevel) J_INSUPPRESSIBLE, (EJournalCategory) J_DBG, "hessian", 0);
+      #endif
    }
 
    return true;

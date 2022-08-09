@@ -10,16 +10,34 @@
 
 #include <iostream>
 
+//#define DEBUG 1
+
 using namespace Ipopt;
 
 int main(
-   int,
-   char**
+   int argc,
+   char** argv
 )
 {
-   int dim = 50;
+
+   int dim = 128;
    int T = 20;
    double reg_param = 1e-3;
+
+   if (argc == 4)
+   {
+      dim = std::stoi(argv[1]);
+      T = std::stoi(argv[2]);
+      reg_param = std::stod(argv[3]);
+   }
+   else
+   {
+      printf("Usage: $cpp_example dim T reg_param\n");
+      printf("Using default values of the parameters\n");
+   }
+   printf("dim = %d\nT = %d\nreg_param = %f\n", dim, T, reg_param);
+
+   
 
    // Create an instance of your nlp...
    SmartPtr<TNLP> mynlp = new MyNLP(dim, T, reg_param);
