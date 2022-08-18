@@ -173,7 +173,7 @@ void MyNLP::AssembleDataNLP()
    }
    for (Index i = 0; i < this->dim; i++)
    {
-      beta_eLR_values[i] *= (-2/this->T) * beta_values[i];
+      beta_eLR_values[i] *= (-2.0/this->T) * beta_values[i];
    }
 
 
